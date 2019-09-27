@@ -69,6 +69,12 @@ parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
 parser.add_argument('--load', dest='load', action='store_true', help='Load pretrained model.')
 parser.add_argument('--model_file', type=str, help='Filename of the pretrained model.')
 
+parser.add_argument('--dep_dim', type=int, default=0, help='Aryeh-dep embedding dimension.')
+parser.add_argument('--directed', type=bool, default=False)
+parser.add_argument('--self_loop', type=bool, default=True)
+parser.add_argument('--lca_root', type=bool, default=True)
+parser.add_argument('--lca_union', type=bool, default=True)
+
 args = parser.parse_args()
 
 torch.manual_seed(args.seed)
@@ -139,7 +145,11 @@ for epoch in range(1, opt['num_epoch']+1):
     for i, batch in enumerate(train_batch):
         start_time = time.time()
         global_step += 1
-        loss = trainer.update(batch)
+        try:
+            loss = trainer.update(batch)
+        except:
+            print("lost train epoch %d" % i)
+            continue
         train_loss += loss
         if global_step % opt['log_step'] == 0:
             duration = time.time() - start_time
@@ -151,7 +161,11 @@ for epoch in range(1, opt['num_epoch']+1):
     predictions = []
     dev_loss = 0
     for i, batch in enumerate(dev_batch):
-        preds, _, loss = trainer.predict(batch)
+        try:
+            preds, _, loss = trainer.predict(batch)
+        except:
+            print("lost predict epoch %d" % i)
+            continue
         predictions += preds
         dev_loss += loss
     predictions = [id2label[p] for p in predictions]

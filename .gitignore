@@ -7,3 +7,8 @@ __pycache__/
 *.tmp
 *.conf
 
+.idea
+public
+private.ppk
+dataset/glove/glove.840B.300d.zip
+*.xml
