@@ -100,11 +100,12 @@ class GCNRelationModel(nn.Module):
         sents = [{"stanford_head": head[i][:l[i]], "stanford_deprel": id2str(deprel[i], constant.DEPREL_TO_ID)[:l[i]],
                   "token": [self.vocab.id2word[word] for word in words[i]][:l[i]],
                   "stanford_pos": id2str(pos[i], constant.POS_TO_ID)[:l[i]]} for i in range(len(l))]
-        dep = [[] for _ in range(len(l))]
+        dep = []
         converts = []
         for i, sent in enumerate(uda.api.convert_ud2ude_tacred(sents)):
             sent_as_list = list(sent.values())
             converts.append(sent_as_list)
+            dep.append([[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_as_list])
             for j in range(len(sent_as_list) - l[i]):
                 word = sent_as_list[l[i] + j]
                 form = word.get_conllu_field("form")
@@ -114,12 +115,10 @@ class GCNRelationModel(nn.Module):
                     words, masks, pos, ner, subj_pos, obj_pos = as_fixed_np(
                         words, masks, pos, ner, subj_pos, obj_pos, i, l[i] + j, self.vocab.word2id[form if form in self.vocab.word2id else constant.UNK_TOKEN],
                         0, pos[i][copy_loc], ner[i][copy_loc], subj_pos[i][copy_loc], obj_pos[i][copy_loc])
-                    # TODO - dep
                 elif ("STATE" in form) or ("QUALITY" in form):
                     words, masks, pos, ner, subj_pos, obj_pos = as_fixed_np(
                         words, masks, pos, ner, subj_pos, obj_pos, i, l[i] + j, self.vocab.word2id[form if form in self.vocab.word2id else constant.UNK_TOKEN],
                         0, constant.UNK_ID, constant.UNK_ID, constant.INFINITY_NUMBER, constant.INFINITY_NUMBER)
-                    # TODO - dep
                 else:
                     import pdb;pdb.set_trace()
                     raise Exception("Aryeh: unknown new node form: %s" % form)
@@ -141,7 +140,7 @@ class GCNRelationModel(nn.Module):
         def to_var(mat):
             return Variable(torch.LongTensor(mat).cuda())
         
-        h, pool_mask = self.gcn(adj, (to_var(words), to_var(masks), to_var(pos), to_var(ner), dep))
+        h, pool_mask = self.gcn(adj, (to_var(words), to_var(masks), to_var(pos), to_var(ner), torch.from_numpy(dep).type(torch.FloatTensor)))
         
         # pooling
         subj_mask, obj_mask = to_var(subj_pos).eq(0).eq(0).unsqueeze(2), to_var(obj_pos).eq(0).eq(0).unsqueeze(2)  # invert mask
@@ -206,8 +205,8 @@ class GCN(nn.Module):
             embs += [self.pos_emb(pos)]
         if self.opt['ner_dim'] > 0:
             embs += [self.ner_emb(ner)]
-        if self.opt['dep_dim'] > 0:
-            embs += [self.dep_emb(dep)]
+        # if self.opt['dep_dim'] > 0:
+        #     embs += [self.dep_emb(dep)]
         embs = torch.cat(embs, dim=2)
         embs = self.in_drop(embs)
 
@@ -226,6 +225,12 @@ class GCN(nn.Module):
 
         for l in range(self.layers):
             Ax = adj.bmm(gcn_inputs)
+            if self.opt['dep_dim'] > 0:
+                chosen_deps = self.dep_emb(dep)
+                chosen_deps = chosen_deps.sum(2)
+                Ax = torch.cat([Ax, chosen_deps], dim=2)
+                loop = self.dep_emb(torch.zeros_like(chosen_deps))
+                gcn_inputs = torch.cat([gcn_inputs, loop], dim=2)
             AxW = self.W[l](Ax)
             AxW = AxW + self.W[l](gcn_inputs) # self loop
             AxW = AxW / denom
