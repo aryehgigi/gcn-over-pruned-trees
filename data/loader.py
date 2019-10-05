@@ -6,6 +6,7 @@ import json
 import random
 import torch
 import numpy as np
+import pickle
 
 from utils import constant, helper, vocab
 
@@ -22,8 +23,9 @@ class DataLoader(object):
 
         with open(filename) as infile:
             data = json.load(infile)
-        self.raw_data = data
-        data = self.preprocess(data, vocab, opt)
+        with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
+            sents = pickle.load(infile)
+        data = self.preprocess(data, vocab, opt, sents)
 
         # shuffle for training
         if not evaluation:
@@ -39,11 +41,16 @@ class DataLoader(object):
         self.data = data
         print("{} batches created for {}".format(len(data), filename))
 
-    def preprocess(self, data, vocab, opt):
+    def preprocess(self, data, vocab, opt, sents):
         """ Preprocess the data and convert to ids. """
         processed = []
-        for d in data:
-            tokens = list(d['token'])
+        for d, sent in zip(data, sents):
+            # tokens = list(d['token'])
+            tokens = []
+            sent_vals = list(sent.values())
+            for t in sent_vals:
+                tokens.append(t.get_conllu_field("form"))
+                # TODO - dep
             if opt['lower']:
                 tokens = [t.lower() for t in tokens]
             # anonymize tokens
@@ -54,16 +61,37 @@ class DataLoader(object):
             tokens = map_to_ids(tokens, vocab.word2id)
             pos = map_to_ids(d['stanford_pos'], constant.POS_TO_ID)
             ner = map_to_ids(d['stanford_ner'], constant.NER_TO_ID)
+            for i in range(len(sent) - len(d['token'])):
+                if sent_vals[len(d['token']) + i].get_conllu_field("misc").startswith("CopyOf="):
+                    copy_i = int(sent_vals[len(d['token']) + i].get_conllu_field("id")) - 1
+                    pos.append(pos[copy_i])
+                    ner.append(ner[copy_i])
+                else:
+                    pos.append(constant.UNK_ID)
+                    ner.append(constant.UNK_ID)
+
             deprel = map_to_ids(d['stanford_deprel'], constant.DEPREL_TO_ID)
             head = [int(x) for x in d['stanford_head']]
-            assert any([x == 0 for x in head])
+            # assert any([x == 0 for x in head])
             l = len(tokens)
             subj_positions = get_positions(d['subj_start'], d['subj_end'], l)
             obj_positions = get_positions(d['obj_start'], d['obj_end'], l)
             subj_type = [constant.SUBJ_NER_TO_ID[d['subj_type']]]
             obj_type = [constant.OBJ_NER_TO_ID[d['obj_type']]]
             relation = self.label2id[d['relation']]
-            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, relation)]
+
+            dep = []
+            if self.opt["dep_dim"]:
+                if self.opt["dep_type"] in [constant.DepType.NAKED.value, constant.DepType.SPLITED.value]:
+                    dep = [[constant.DEP_TO_ID2[":".join(r.split(":")[:2]) if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+                    if self.opt["dep_type"] == constant.DepType.SPLITED.value:
+                        dep2 = [[constant.DEP_CASE_INFO[r.split(":")[1]] for (c, r) in t.get_children_with_rels() if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO)] for t in sent_vals]
+                        dep3 = [[constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]] for (c, r) in t.get_children_with_rels() if "_extra" in r.split(":")[-1]] for t in sent_vals]
+                        dep = (dep, dep2, dep3)
+                else:  # self.opt["dep_type"] == constant.DepType.ALL.value
+                    dep = [[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+            
+            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, sent_vals, dep, relation)]
         return processed
 
     def gold(self):
@@ -82,7 +110,7 @@ class DataLoader(object):
         batch = self.data[key]
         batch_size = len(batch)
         batch = list(zip(*batch))
-        assert len(batch) == 10
+        assert len(batch) == 12
 
         # sort all fields by lens for easy RNN operations
         lens = [len(x) for x in batch[0]]
@@ -106,9 +134,10 @@ class DataLoader(object):
         subj_type = get_long_tensor(batch[7], batch_size)
         obj_type = get_long_tensor(batch[8], batch_size)
 
-        rels = torch.LongTensor(batch[9])
-
-        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, rels, orig_idx)
+        rels = torch.LongTensor(batch[11])
+        sents = batch[9]
+        dep = batch[10]
+        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, rels, orig_idx, sents, dep)
 
     def __iter__(self):
         for i in range(self.__len__()):

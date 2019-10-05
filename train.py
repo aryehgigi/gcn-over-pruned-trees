@@ -69,11 +69,10 @@ parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
 parser.add_argument('--load', dest='load', action='store_true', help='Load pretrained model.')
 parser.add_argument('--model_file', type=str, help='Filename of the pretrained model.')
 
-parser.add_argument('--dep_dim', type=int, default=0, help='Aryeh-dep embedding dimension.')
 parser.add_argument('--directed', type=bool, default=False)
-parser.add_argument('--self_loop', type=bool, default=True)
-parser.add_argument('--lca_root', type=bool, default=True)
-parser.add_argument('--lca_union', type=bool, default=True)
+parser.add_argument('--dep_dim', type=int, default=0, help='Aryeh-dep embedding dimension.')
+parser.add_argument('--dep_type', type=int, default=constant.DepType.ALL.value)
+parser.add_argument('--lca_type', type=int, default=constant.LcaType.UNION_LCA)
 
 args = parser.parse_args()
 
@@ -155,17 +154,14 @@ for epoch in range(1, opt['num_epoch']+1):
             duration = time.time() - start_time
             print(format_str.format(datetime.now(), global_step, max_steps, epoch,\
                     opt['num_epoch'], loss, duration, current_lr))
+    trainer.save_bla()
 
     # eval on dev
     print("Evaluating on dev set...")
     predictions = []
     dev_loss = 0
     for i, batch in enumerate(dev_batch):
-        try:
-            preds, _, loss = trainer.predict(batch)
-        except:
-            print("lost predict epoch %d" % i)
-            continue
+        preds, _, loss = trainer.predict(batch)
         predictions += preds
         dev_loss += loss
     predictions = [id2label[p] for p in predictions]

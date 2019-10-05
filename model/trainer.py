@@ -47,10 +47,10 @@ class Trainer(object):
 
 def unpack_batch(batch, cuda):
     if cuda:
-        inputs = [Variable(b.cuda()) for b in batch[:10]]
+        inputs = [Variable(b.cuda()) for b in batch[:10]] + [b for b in batch[12:]]
         labels = Variable(batch[10].cuda())
     else:
-        inputs = [Variable(b) for b in batch[:10]]
+        inputs = [Variable(b) for b in batch[:10]] + [b for b in batch[12:]]
         labels = Variable(batch[10])
     tokens = batch[0]
     head = batch[5]
@@ -70,7 +70,10 @@ class GCNTrainer(Trainer):
             self.model.cuda()
             self.criterion.cuda()
         self.optimizer = torch_utils.get_optimizer(opt['optim'], self.parameters, opt['lr'])
-
+    
+    def save_bla(self):
+        self.model.save_bla()
+     
     def update(self, batch):
         inputs, labels, tokens, head, subj_pos, obj_pos, lens = unpack_batch(batch, self.opt['cuda'])
 

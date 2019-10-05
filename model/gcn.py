@@ -21,7 +21,10 @@ class GCNClassifier(nn.Module):
         in_dim = opt['hidden_dim']
         self.classifier = nn.Linear(in_dim, opt['num_class'])
         self.opt = opt
-
+    
+    def save_bla(self):
+        self.gcn_model.save_bla()
+        
     def conv_l2(self):
         return self.gcn_model.gcn.conv_l2()
 
@@ -31,24 +34,6 @@ class GCNClassifier(nn.Module):
         return logits, pooling_output
 
 
-def set_loc(mat, i, j, val):
-    if len(mat[i]) <= j:
-        mat = np.append(mat, [[(val if k == i else 0)] for k in range(len(mat))], 1)
-    else:
-        mat[i][j] = val
-    return mat
-
-
-def as_fixed_np(words, masks, pos, ner, subj_pos, obj_pos, i, j, val_words, val_masks, val_pos, val_ner, val_subj, val_obj):
-    fixed_words = set_loc(words, i, j, val_words)
-    fixed_masks = set_loc(masks, i, j, val_masks)
-    fixed_pos = set_loc(pos, i, j, val_pos)
-    fixed_ner = set_loc(ner, i, j, val_ner)
-    fixed_subj_pos = set_loc(subj_pos, i, j, val_subj)  # non zero
-    fixed_obj_pos = set_loc(obj_pos, i, j, val_obj)  # non zero
-    return fixed_words, fixed_masks, fixed_pos, fixed_ner, fixed_subj_pos, fixed_obj_pos
-
-
 class GCNRelationModel(nn.Module):
     def __init__(self, opt, emb_matrix=None):
         super().__init__()
@@ -56,12 +41,22 @@ class GCNRelationModel(nn.Module):
         self.vocab = Vocab(opt['vocab_dir'] + '/vocab.pkl', load=True)
         self.opt = opt
         self.emb_matrix = emb_matrix
-
+        self.global_awesome_dict = dict()
+        
         # create embedding layers
         self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'], padding_idx=constant.PAD_ID)
         self.pos_emb = nn.Embedding(len(constant.POS_TO_ID), opt['pos_dim']) if opt['pos_dim'] > 0 else None
         self.ner_emb = nn.Embedding(len(constant.NER_TO_ID), opt['ner_dim']) if opt['ner_dim'] > 0 else None
-        self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID), opt['dep_dim']) if opt['dep_dim'] > 0 else None
+        if self.opt["dep_type"] == constant.DepType.ALL.value:
+            self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID), opt['dep_dim'], padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+        elif self.opt["dep_type"] == constant.DepType.NAKED.value:
+            self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), opt['dep_dim'], padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+        else: # self.opt["dep_type"] == constant.DepType.SPLITED.value:
+            dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            dep_emb1 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim'] / 2), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            dep_emb2 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb = (dep_emb, dep_emb1, dep_emb2)
+            
         embeddings = (self.emb, self.pos_emb, self.ner_emb, self.dep_emb)
         self.init_embeddings()
 
@@ -74,7 +69,12 @@ class GCNRelationModel(nn.Module):
         for _ in range(self.opt['mlp_layers']-1):
             layers += [nn.Linear(opt['hidden_dim'], opt['hidden_dim']), nn.ReLU()]
         self.out_mlp = nn.Sequential(*layers)
-
+    
+    def save_bla(self):
+        import pickle
+        with open("bla.pkl") as f:
+            pickle.dump(self.global_awesome_dict, f)
+    
     def init_embeddings(self):
         if self.emb_matrix is None:
             self.emb.weight.data[1:,:].uniform_(-1.0, 1.0)
@@ -93,57 +93,36 @@ class GCNRelationModel(nn.Module):
             print("Finetune all embeddings.")
 
     def forward(self, inputs):
-        inputs = [input_.data.cpu().numpy() for input_ in inputs]  # unpack
-        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs
-        l = (masks == 0).astype(np.int64).sum(1)
-
-        sents = [{"stanford_head": head[i][:l[i]], "stanford_deprel": id2str(deprel[i], constant.DEPREL_TO_ID)[:l[i]],
-                  "token": [self.vocab.id2word[word] for word in words[i]][:l[i]],
-                  "stanford_pos": id2str(pos[i], constant.POS_TO_ID)[:l[i]]} for i in range(len(l))]
-        dep = []
-        converts = []
-        for i, sent in enumerate(uda.api.convert_ud2ude_tacred(sents)):
-            sent_as_list = list(sent.values())
-            converts.append(sent_as_list)
-            dep.append([[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_as_list])
-            for j in range(len(sent_as_list) - l[i]):
-                word = sent_as_list[l[i] + j]
-                form = word.get_conllu_field("form")
-                if word.get_conllu_field("misc").startswith("CopyOf="):
-                    #copy_loc = word.get_parents()[0].get_conllu_field("id") - 1
-                    copy_loc = int(word.get_conllu_field("id")) - 1
-                    words, masks, pos, ner, subj_pos, obj_pos = as_fixed_np(
-                        words, masks, pos, ner, subj_pos, obj_pos, i, l[i] + j, self.vocab.word2id[form if form in self.vocab.word2id else constant.UNK_TOKEN],
-                        0, pos[i][copy_loc], ner[i][copy_loc], subj_pos[i][copy_loc], obj_pos[i][copy_loc])
-                elif ("STATE" in form) or ("QUALITY" in form):
-                    words, masks, pos, ner, subj_pos, obj_pos = as_fixed_np(
-                        words, masks, pos, ner, subj_pos, obj_pos, i, l[i] + j, self.vocab.word2id[form if form in self.vocab.word2id else constant.UNK_TOKEN],
-                        0, constant.UNK_ID, constant.UNK_ID, constant.INFINITY_NUMBER, constant.INFINITY_NUMBER)
-                else:
-                    import pdb;pdb.set_trace()
-                    raise Exception("Aryeh: unknown new node form: %s" % form)
-
-        # TODO: validate
-        l = (masks == 0).astype(np.int64).sum(1)
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep = inputs
+        l = (masks.data.cpu().numpy() == 0).astype(np.int64).sum(1)
         maxlen = max(l)
-
+        
         adj = []
-        for i, converted in enumerate(converts):
-            cur_adj = uda.graph_token.adjacency_matrix(converted, self.opt['prune_k'], subj_pos[i][:l[i]], obj_pos[i][:l[i]], self.opt['directed'], self.opt['self_loop'], self.opt['lca_root'], self.opt['lca_union'])
-            padded = np.pad(cur_adj, ((0, maxlen - len(converted)), (0, maxlen - len(converted))), 'constant')
-            reshaped = padded.reshape(1, maxlen, maxlen)
+        for i, converted in enumerate(sents):
+            params = (str(words.data.cpu().numpy()), self.opt['prune_k'], str(subj_pos.data.cpu().numpy()[i][:l[i]]), str(obj_pos.data.cpu().numpy()[i][:l[i]]), self.opt['directed'], self.opt['lca_type'])
+            if params in self.global_awesome_dict:
+                reshaped = self.global_awesome_dict[params]
+            else:
+                cur_adj = uda.graph_token.adjacency_matrix(
+                    converted, self.opt['prune_k'], subj_pos.data.cpu().numpy()[i][:l[i]], obj_pos.data.cpu().numpy()[i][:l[i]],
+                    self.opt['directed'], self.opt['lca_type'])
+                padded = np.pad(cur_adj, ((0, maxlen - len(converted)), (0, maxlen - len(converted))), 'constant')
+                try:
+                    reshaped = padded.reshape(1, maxlen, maxlen)
+                except:
+                    import pdb;pdb.set_trace()
+                    raise
+                self.global_awesome_dict[params] = reshaped
             adj.append(reshaped)
+        # adj = np.random.randint(0,2,(len(l),maxlen,maxlen))
         adj = np.concatenate(adj, axis=0)
         adj = torch.from_numpy(adj).type(torch.FloatTensor)
         adj = Variable(adj.cuda()) if self.opt['cuda'] else Variable(adj)
-
-        def to_var(mat):
-            return Variable(torch.LongTensor(mat).cuda())
         
-        h, pool_mask = self.gcn(adj, (to_var(words), to_var(masks), to_var(pos), to_var(ner), torch.from_numpy(dep).type(torch.FloatTensor)))
+        h, pool_mask = self.gcn(adj, inputs, maxlen)
         
         # pooling
-        subj_mask, obj_mask = to_var(subj_pos).eq(0).eq(0).unsqueeze(2), to_var(obj_pos).eq(0).eq(0).unsqueeze(2)  # invert mask
+        subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0).eq(0).unsqueeze(2)  # invert mask
         pool_type = self.opt['pooling']
         h_out = pool(h, pool_mask, type=pool_type)
         subj_out = pool(h, subj_mask, type=pool_type)
@@ -161,7 +140,7 @@ class GCN(nn.Module):
         self.layers = num_layers
         self.use_cuda = opt['cuda']
         self.mem_dim = mem_dim
-        self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim'] + opt['dep_dim']
+        self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
 
         self.emb, self.pos_emb, self.ner_emb, self.dep_emb = embeddings
 
@@ -172,7 +151,8 @@ class GCN(nn.Module):
                     dropout=opt['rnn_dropout'], bidirectional=True)
             self.in_dim = opt['rnn_hidden'] * 2
             self.rnn_drop = nn.Dropout(opt['rnn_dropout']) # use on last layer output
-
+        self.in_dim += self.opt["dep_dim"]
+        
         self.in_drop = nn.Dropout(opt['input_dropout'])
         self.gcn_drop = nn.Dropout(opt['gcn_dropout'])
 
@@ -197,16 +177,14 @@ class GCN(nn.Module):
         rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, batch_first=True)
         return rnn_outputs
 
-    def forward(self, adj, inputs):
-        words, masks, pos, ner, dep = inputs
+    def forward(self, adj, inputs, maxlen):
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep = inputs # unpack
         word_embs = self.emb(words)
         embs = [word_embs]
         if self.opt['pos_dim'] > 0:
             embs += [self.pos_emb(pos)]
         if self.opt['ner_dim'] > 0:
             embs += [self.ner_emb(ner)]
-        # if self.opt['dep_dim'] > 0:
-        #     embs += [self.dep_emb(dep)]
         embs = torch.cat(embs, dim=2)
         embs = self.in_drop(embs)
 
@@ -223,13 +201,34 @@ class GCN(nn.Module):
         if self.opt.get('no_adj', False):
             adj = torch.zeros_like(adj)
 
+
+            
         for l in range(self.layers):
             Ax = adj.bmm(gcn_inputs)
-            if self.opt['dep_dim'] > 0:
-                chosen_deps = self.dep_emb(dep)
-                chosen_deps = chosen_deps.sum(2)
+            if (l == 0) and (self.opt['dep_dim'] > 0):
+                def arrange_dep(e, d, l_):
+                    new_d = []
+                    for s in d:
+                        si = [e(torch.tensor(w)).sum(0).unsqueeze(0) if w else e(torch.tensor(0)).unsqueeze(0) for w in s]
+                        sa = si + [e(torch.tensor(0)).unsqueeze(0) for _ in range(l_ - len(si))]
+                        new_d.append(torch.cat(sa, dim=0).unsqueeze(0))
+                    return torch.cat(new_d, dim=0)
+                if self.opt["dep_type"] == constant.DepType.SPLITED.value:
+                    dep = list(zip(*dep))
+                    chosen_deps = torch.cat([
+                        arrange_dep(self.dep_emb[0], dep[0], maxlen),
+                        arrange_dep(self.dep_emb[1], dep[1], maxlen),
+                        arrange_dep(self.dep_emb[2], dep[2], maxlen)], dim=2)
+                    lo1 = self.dep_emb[0](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long))
+                    lo2 = self.dep_emb[1](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.PAD_ID, dtype=torch.long))
+                    lo3 = self.dep_emb[2](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.PAD_ID, dtype=torch.long))
+                    loop = torch.cat([lo1, lo2, lo3], dim=2)
+                else:
+                    chosen_deps = arrange_dep(self.dep_emb, dep, maxlen)
+                    loop = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long))
+                chosen_deps = Variable(chosen_deps.cuda()) if self.opt['cuda'] else Variable(chosen_deps)
                 Ax = torch.cat([Ax, chosen_deps], dim=2)
-                loop = self.dep_emb(torch.zeros_like(chosen_deps))
+                loop = Variable(loop.cuda()) if self.opt['cuda'] else Variable(loop)
                 gcn_inputs = torch.cat([gcn_inputs, loop], dim=2)
             AxW = self.W[l](Ax)
             AxW = AxW + self.W[l](gcn_inputs) # self loop
