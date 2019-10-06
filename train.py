@@ -154,14 +154,17 @@ for epoch in range(1, opt['num_epoch']+1):
             duration = time.time() - start_time
             print(format_str.format(datetime.now(), global_step, max_steps, epoch,\
                     opt['num_epoch'], loss, duration, current_lr))
-    trainer.save_bla()
 
     # eval on dev
     print("Evaluating on dev set...")
     predictions = []
     dev_loss = 0
     for i, batch in enumerate(dev_batch):
-        preds, _, loss = trainer.predict(batch)
+        try:
+            preds, _, loss = trainer.predict(batch)
+        except:
+            print("lost train epoch %d" % i)
+            continue
         predictions += preds
         dev_loss += loss
     predictions = [id2label[p] for p in predictions]

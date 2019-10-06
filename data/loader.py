@@ -7,6 +7,7 @@ import random
 import torch
 import numpy as np
 import pickle
+import uuid
 
 from utils import constant, helper, vocab
 
@@ -50,7 +51,6 @@ class DataLoader(object):
             sent_vals = list(sent.values())
             for t in sent_vals:
                 tokens.append(t.get_conllu_field("form"))
-                # TODO - dep
             if opt['lower']:
                 tokens = [t.lower() for t in tokens]
             # anonymize tokens
@@ -80,18 +80,21 @@ class DataLoader(object):
             obj_type = [constant.OBJ_NER_TO_ID[d['obj_type']]]
             relation = self.label2id[d['relation']]
 
-            dep = []
+            # create dep
+            dep = ([[]],[[]],[[]])
             if self.opt["dep_dim"]:
+                dep2 = [[]]
+                dep3 = [[]]
                 if self.opt["dep_type"] in [constant.DepType.NAKED.value, constant.DepType.SPLITED.value]:
-                    dep = [[constant.DEP_TO_ID2[":".join(r.split(":")[:2]) if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+                    dep1 = [[constant.DEP_TO_ID2[":".join(r.split(":")[:2]) if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
                     if self.opt["dep_type"] == constant.DepType.SPLITED.value:
                         dep2 = [[constant.DEP_CASE_INFO[r.split(":")[1]] for (c, r) in t.get_children_with_rels() if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO)] for t in sent_vals]
                         dep3 = [[constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]] for (c, r) in t.get_children_with_rels() if "_extra" in r.split(":")[-1]] for t in sent_vals]
-                        dep = (dep, dep2, dep3)
                 else:  # self.opt["dep_type"] == constant.DepType.ALL.value
-                    dep = [[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+                    dep1 = [[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+                dep = (dep1, dep2, dep3)
             
-            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, sent_vals, dep, relation)]
+            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, (sent_vals, uuid.uuid1()), dep, relation)]
         return processed
 
     def gold(self):
@@ -136,8 +139,11 @@ class DataLoader(object):
 
         rels = torch.LongTensor(batch[11])
         sents = batch[9]
-        dep = batch[10]
-        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, rels, orig_idx, sents, dep)
+        batch10 = list(zip(*(batch[10])))
+        dep = (get_long_tensor_matrix(batch10[0], batch_size),
+               get_long_tensor_matrix(batch10[1], batch_size),
+               get_long_tensor_matrix(batch10[2], batch_size))
+        return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, dep, rels, orig_idx, sents)
 
     def __iter__(self):
         for i in range(self.__len__()):
@@ -159,6 +165,17 @@ def get_long_tensor(tokens_list, batch_size):
     for i, s in enumerate(tokens_list):
         tokens[i, :len(s)] = torch.LongTensor(s)
     return tokens
+
+def get_long_tensor_matrix(tokens_list, batch_size):
+    """ Convert list of list of tokens to a padded LongTensor. """
+    sent_len = max(len(x) for x in tokens_list)
+    token_len = max(len(x) for t in tokens_list for x in t)
+    tokens = torch.LongTensor(batch_size, sent_len, token_len).fill_(constant.PAD_ID)
+    for i, s in enumerate(tokens_list):
+        for j, w in enumerate(s):
+            tokens[i, j, :len(w)] = torch.LongTensor(w)
+    return tokens
+
 
 def sort_all(batch, lens):
     """ Sort all fields by descending order of lens, and return the original indices. """

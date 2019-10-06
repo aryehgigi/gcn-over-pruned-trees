@@ -22,9 +22,6 @@ class GCNClassifier(nn.Module):
         self.classifier = nn.Linear(in_dim, opt['num_class'])
         self.opt = opt
     
-    def save_bla(self):
-        self.gcn_model.save_bla()
-        
     def conv_l2(self):
         return self.gcn_model.gcn.conv_l2()
 
@@ -52,12 +49,11 @@ class GCNRelationModel(nn.Module):
         elif self.opt["dep_type"] == constant.DepType.NAKED.value:
             self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), opt['dep_dim'], padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
         else: # self.opt["dep_type"] == constant.DepType.SPLITED.value:
-            dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            dep_emb1 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim'] / 2), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            dep_emb2 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            self.dep_emb = (dep_emb, dep_emb1, dep_emb2)
+            self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb2 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim'] / 2), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb3 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
             
-        embeddings = (self.emb, self.pos_emb, self.ner_emb, self.dep_emb)
+        embeddings = (self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3)
         self.init_embeddings()
 
         # gcn layer
@@ -69,12 +65,7 @@ class GCNRelationModel(nn.Module):
         for _ in range(self.opt['mlp_layers']-1):
             layers += [nn.Linear(opt['hidden_dim'], opt['hidden_dim']), nn.ReLU()]
         self.out_mlp = nn.Sequential(*layers)
-    
-    def save_bla(self):
-        import pickle
-        with open("bla.pkl") as f:
-            pickle.dump(self.global_awesome_dict, f)
-    
+        
     def init_embeddings(self):
         if self.emb_matrix is None:
             self.emb.weight.data[1:,:].uniform_(-1.0, 1.0)
@@ -93,13 +84,14 @@ class GCNRelationModel(nn.Module):
             print("Finetune all embeddings.")
 
     def forward(self, inputs):
-        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep = inputs
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep, dep2, dep3 = inputs
         l = (masks.data.cpu().numpy() == 0).astype(np.int64).sum(1)
         maxlen = max(l)
         
         adj = []
-        for i, converted in enumerate(sents):
-            params = (str(words.data.cpu().numpy()), self.opt['prune_k'], str(subj_pos.data.cpu().numpy()[i][:l[i]]), str(obj_pos.data.cpu().numpy()[i][:l[i]]), self.opt['directed'], self.opt['lca_type'])
+        for i, (converted, idx) in enumerate(sents):
+            #params = (str(words.data.cpu().numpy()[i][:l[i]]), self.opt['prune_k'], str(subj_pos.data.cpu().numpy()[i][:l[i]]), str(obj_pos.data.cpu().numpy()[i][:l[i]]), self.opt['directed'], self.opt['lca_type'])
+            params = idx
             if params in self.global_awesome_dict:
                 reshaped = self.global_awesome_dict[params]
             else:
@@ -107,11 +99,7 @@ class GCNRelationModel(nn.Module):
                     converted, self.opt['prune_k'], subj_pos.data.cpu().numpy()[i][:l[i]], obj_pos.data.cpu().numpy()[i][:l[i]],
                     self.opt['directed'], self.opt['lca_type'])
                 padded = np.pad(cur_adj, ((0, maxlen - len(converted)), (0, maxlen - len(converted))), 'constant')
-                try:
-                    reshaped = padded.reshape(1, maxlen, maxlen)
-                except:
-                    import pdb;pdb.set_trace()
-                    raise
+                reshaped = padded.reshape(1, maxlen, maxlen)
                 self.global_awesome_dict[params] = reshaped
             adj.append(reshaped)
         # adj = np.random.randint(0,2,(len(l),maxlen,maxlen))
@@ -142,7 +130,7 @@ class GCN(nn.Module):
         self.mem_dim = mem_dim
         self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
 
-        self.emb, self.pos_emb, self.ner_emb, self.dep_emb = embeddings
+        self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3 = embeddings
 
         # rnn layer
         if self.opt.get('rnn', False):
@@ -178,7 +166,7 @@ class GCN(nn.Module):
         return rnn_outputs
 
     def forward(self, adj, inputs, maxlen):
-        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep = inputs # unpack
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type, sents, dep, dep2, dep3 = inputs # unpack
         word_embs = self.emb(words)
         embs = [word_embs]
         if self.opt['pos_dim'] > 0:
@@ -201,34 +189,19 @@ class GCN(nn.Module):
         if self.opt.get('no_adj', False):
             adj = torch.zeros_like(adj)
 
-
-            
         for l in range(self.layers):
             Ax = adj.bmm(gcn_inputs)
             if (l == 0) and (self.opt['dep_dim'] > 0):
-                def arrange_dep(e, d, l_):
-                    new_d = []
-                    for s in d:
-                        si = [e(torch.tensor(w)).sum(0).unsqueeze(0) if w else e(torch.tensor(0)).unsqueeze(0) for w in s]
-                        sa = si + [e(torch.tensor(0)).unsqueeze(0) for _ in range(l_ - len(si))]
-                        new_d.append(torch.cat(sa, dim=0).unsqueeze(0))
-                    return torch.cat(new_d, dim=0)
                 if self.opt["dep_type"] == constant.DepType.SPLITED.value:
-                    dep = list(zip(*dep))
-                    chosen_deps = torch.cat([
-                        arrange_dep(self.dep_emb[0], dep[0], maxlen),
-                        arrange_dep(self.dep_emb[1], dep[1], maxlen),
-                        arrange_dep(self.dep_emb[2], dep[2], maxlen)], dim=2)
-                    lo1 = self.dep_emb[0](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long))
-                    lo2 = self.dep_emb[1](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.PAD_ID, dtype=torch.long))
-                    lo3 = self.dep_emb[2](torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.PAD_ID, dtype=torch.long))
+                    chosen_deps = torch.cat([self.dep_emb(dep).sum(2), self.dep_emb2(dep2).sum(2), self.dep_emb3(dep3).sum(2)], dim=2)
+                    lo1 = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long).cuda())
+                    lo2 = self.dep_emb2(torch.zeros((chosen_deps.size()[0], chosen_deps.size()[1]), dtype=torch.long).cuda())
+                    lo3 = self.dep_emb3(torch.zeros((chosen_deps.size()[0], chosen_deps.size()[1]), dtype=torch.long).cuda())
                     loop = torch.cat([lo1, lo2, lo3], dim=2)
                 else:
-                    chosen_deps = arrange_dep(self.dep_emb, dep, maxlen)
-                    loop = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long))
-                chosen_deps = Variable(chosen_deps.cuda()) if self.opt['cuda'] else Variable(chosen_deps)
+                    chosen_deps = self.dep_emb(dep).sum(2)
+                    loop = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long).cuda())
                 Ax = torch.cat([Ax, chosen_deps], dim=2)
-                loop = Variable(loop.cuda()) if self.opt['cuda'] else Variable(loop)
                 gcn_inputs = torch.cat([gcn_inputs, loop], dim=2)
             AxW = self.W[l](Ax)
             AxW = AxW + self.W[l](gcn_inputs) # self loop
@@ -258,8 +231,3 @@ def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_c
         return h0.cuda(), c0.cuda()
     else:
         return h0, c0
-
-
-def id2str(iids, vocab):
-    vocab_rev = {v: k for k,v in vocab.items()}
-    return [vocab_rev[iid] for iid in iids]
