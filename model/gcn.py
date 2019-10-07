@@ -38,7 +38,6 @@ class GCNRelationModel(nn.Module):
         self.vocab = Vocab(opt['vocab_dir'] + '/vocab.pkl', load=True)
         self.opt = opt
         self.emb_matrix = emb_matrix
-        self.global_awesome_dict = dict()
         
         # create embedding layers
         self.emb = nn.Embedding(opt['vocab_size'], opt['emb_dim'], padding_idx=constant.PAD_ID)
@@ -93,20 +92,10 @@ class GCNRelationModel(nn.Module):
         maxlen = max(l)
         
         adj = []
-        for i, (converted, idx) in enumerate(sents):
-            #params = (str(words.data.cpu().numpy()[i][:l[i]]), self.opt['prune_k'], str(subj_pos.data.cpu().numpy()[i][:l[i]]), str(obj_pos.data.cpu().numpy()[i][:l[i]]), self.opt['directed'], self.opt['lca_type'])
-            params = idx
-            if params in self.global_awesome_dict:
-                reshaped = self.global_awesome_dict[params]
-            else:
-                cur_adj = uda.graph_token.adjacency_matrix(
-                    converted, self.opt['prune_k'], subj_pos.data.cpu().numpy()[i][:l[i]], obj_pos.data.cpu().numpy()[i][:l[i]],
-                    self.opt['directed'], self.opt['lca_type'])
-                padded = np.pad(cur_adj, ((0, maxlen - len(converted)), (0, maxlen - len(converted))), 'constant')
-                reshaped = padded.reshape(1, maxlen, maxlen)
-                self.global_awesome_dict[params] = reshaped
+        for sent in sents:
+            padded = np.pad(sent, ((0, maxlen - len(sent)), (0, maxlen - len(sent))), 'constant')
+            reshaped = padded.reshape(1, maxlen, maxlen)
             adj.append(reshaped)
-        # adj = np.random.randint(0,2,(len(l),maxlen,maxlen))
         adj = np.concatenate(adj, axis=0)
         adj = torch.from_numpy(adj).type(torch.FloatTensor)
         adj = Variable(adj.cuda()) if self.opt['cuda'] else Variable(adj)
