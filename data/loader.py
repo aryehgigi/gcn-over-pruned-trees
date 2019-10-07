@@ -84,15 +84,36 @@ class DataLoader(object):
             # create dep
             dep = ([[]],[[]],[[]])
             if self.opt["dep_dim"]:
-                dep2 = [[]]
-                dep3 = [[]]
-                if self.opt["dep_type"] in [constant.DepType.NAKED.value, constant.DepType.SPLITED.value]:
-                    dep1 = [[constant.DEP_TO_ID2[":".join(r.split(":")[:2]) if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
-                    if self.opt["dep_type"] == constant.DepType.SPLITED.value:
-                        dep2 = [[constant.DEP_CASE_INFO[r.split(":")[1]] for (c, r) in t.get_children_with_rels() if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO)] for t in sent_vals]
-                        dep3 = [[constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]] for (c, r) in t.get_children_with_rels() if "_extra" in r.split(":")[-1]] for t in sent_vals]
-                else:  # self.opt["dep_type"] == constant.DepType.ALL.value
-                    dep1 = [[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
+                tmap = dict()
+                for i, t_i in enumerate(sent_vals):
+                    tmap[t_i.get_conllu_field("id")] = i
+                
+                dep1 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
+                dep2 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
+                dep3 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
+                for i, t_i in enumerate(sent_vals):
+                    children = {tmap[t_i.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
+                    for j, t_j in enumerate(sent_vals):
+                        if i == j:
+                            if opt['self_loop']:
+                                dep1[i][j] = constant.SELF_LOOP
+                            continue
+                        
+                        if j not in children:
+                            continue
+                        
+                        r = children[j]
+                        if self.opt["dep_type"] in [constant.DepType.NAKED.value, constant.DepType.SPLITED.value]:
+                            dep1[i][j] = constant.DEP_TO_ID2[":".join(r.split(":")[:2])
+                                if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]]
+                            if self.opt["dep_type"] == constant.DepType.SPLITED.value:
+                                if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO):
+                                    dep2[i][j] = constant.DEP_CASE_INFO[r.split(":")[1]]
+                                if "_extra" in r.split(":")[-1]:
+                                    dep3[i][j] = constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]]
+                        else:  # self.opt["dep_type"] == constant.DepType.ALL.value
+                            dep1[i][j] = constant.DEP_TO_ID[r]
+
                 dep = (dep1, dep2, dep3)
             
             adj = uda.graph_token.adjacency_matrix(

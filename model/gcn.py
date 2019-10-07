@@ -124,6 +124,9 @@ class GCN(nn.Module):
         self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
 
         self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3 = embeddings
+        
+        if opt['dep_dim'] > 0:
+            self.W_dep = nn.Linear(self.in_dim + opt['dep_dim'], self.in_dim)
 
         # rnn layer
         if self.opt.get('rnn', False):
@@ -132,7 +135,6 @@ class GCN(nn.Module):
                     dropout=opt['rnn_dropout'], bidirectional=True)
             self.in_dim = opt['rnn_hidden'] * 2
             self.rnn_drop = nn.Dropout(opt['rnn_dropout']) # use on last layer output
-        self.in_dim += self.opt["dep_dim"]
         
         self.in_drop = nn.Dropout(opt['input_dropout'])
         self.gcn_drop = nn.Dropout(opt['gcn_dropout'])
@@ -174,6 +176,16 @@ class GCN(nn.Module):
             gcn_inputs = self.rnn_drop(self.encode_with_rnn(embs, masks, words.size()[0]))
         else:
             gcn_inputs = embs
+
+        if self.opt['dep_dim'] > 0:
+            if self.opt["dep_type"] == constant.DepType.SPLITED.value:
+                chosen_deps = torch.cat([self.dep_emb(dep), self.dep_emb2(dep2), self.dep_emb3(dep3)], dim=3)
+            else:
+                chosen_deps = self.dep_emb(dep)
+            
+            gcn_inputs = F.relu(self.W_dep(torch.cat([gcn_inputs.unsqueeze(1).expand(
+                gcn_inputs.shape[0], gcn_inputs.shape[1],
+                gcn_inputs.shape[1], gcn_inputs.shape[2]), chosen_deps], dim=2))).sum(2)
         
         # gcn layer
         denom = adj.sum(2).unsqueeze(2) + 1
@@ -183,21 +195,14 @@ class GCN(nn.Module):
             adj = torch.zeros_like(adj)
 
         for l in range(self.layers):
-            Ax = adj.bmm(gcn_inputs)
             if (l == 0) and (self.opt['dep_dim'] > 0):
-                if self.opt["dep_type"] == constant.DepType.SPLITED.value:
-                    chosen_deps = torch.cat([self.dep_emb(dep).sum(2), self.dep_emb2(dep2).sum(2), self.dep_emb3(dep3).sum(2)], dim=2)
-                    lo1 = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long).cuda())
-                    lo2 = self.dep_emb2(torch.zeros((chosen_deps.size()[0], chosen_deps.size()[1]), dtype=torch.long).cuda())
-                    lo3 = self.dep_emb3(torch.zeros((chosen_deps.size()[0], chosen_deps.size()[1]), dtype=torch.long).cuda())
-                    loop = torch.cat([lo1, lo2, lo3], dim=2)
-                else:
-                    chosen_deps = self.dep_emb(dep).sum(2)
-                    loop = self.dep_emb(torch.full((chosen_deps.size()[0], chosen_deps.size()[1]), constant.SELF_LOOP_ID, dtype=torch.long).cuda())
-                Ax = torch.cat([Ax, chosen_deps], dim=2)
-                gcn_inputs = torch.cat([gcn_inputs, loop], dim=2)
+                chosen = [torch.cat([ii.transpose(0, 1).mv(i).unsqueeze(0) for i, ii in zip(ad, cur)], dim=0).unsqueeze(0) for (ad, cur) in zip(adj, gcn_inputs)]
+                Ax = torch.cat(chosen, dim=0)
+            else:
+                Ax = adj.bmm(gcn_inputs)
             AxW = self.W[l](Ax)
-            AxW = AxW + self.W[l](gcn_inputs) # self loop
+            if ((l != 0) or (self.opt['dep_dim'] == 0)) and self.opt['self_loop']:
+                AxW = AxW + self.W[l](gcn_inputs)  # self loop
             AxW = AxW / denom
 
             gAxW = F.relu(AxW)

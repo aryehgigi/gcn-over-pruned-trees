@@ -70,6 +70,7 @@ parser.add_argument('--load', dest='load', action='store_true', help='Load pretr
 parser.add_argument('--model_file', type=str, help='Filename of the pretrained model.')
 
 parser.add_argument('--directed', type=bool, default=False)
+parser.add_argument('--self_loop', type=bool, default=True)
 parser.add_argument('--dep_dim', type=int, default=0, help='Aryeh-dep embedding dimension.')
 parser.add_argument('--dep_type', type=int, default=constant.DepType.ALL.value)
 parser.add_argument('--lca_type', type=int, default=constant.LcaType.UNION_LCA)
