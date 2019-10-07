@@ -23,11 +23,15 @@ class DataLoader(object):
         self.eval = evaluation
         self.label2id = constant.LABEL_TO_ID
 
-        with open(filename) as infile:
-            data = json.load(infile)
-        with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
-            sents = pickle.load(infile)
-        data = self.preprocess(data, vocab, opt, sents)
+        # with open(filename) as infile:
+        #     data = json.load(infile)
+        # with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
+        #     sents = pickle.load(infile)
+        # data = self.preprocess(data, vocab, opt, sents)
+        # # with open(opt["data_dir"] + "/processed_%s.pkl" % (filename.split("/")[-1].split(".")[0]), "wb") as outfile:
+        # #     pickle.dump(data, outfile)
+        with open(opt["data_dir"] + "/processed_%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
+            data = pickle.load(infile)
 
         # shuffle for training
         if not evaluation:
@@ -88,15 +92,15 @@ class DataLoader(object):
                 for i, t_i in enumerate(sent_vals):
                     tmap[t_i.get_conllu_field("id")] = i
                 
-                dep1 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
-                dep2 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
-                dep3 = [[constant.PAD_ID] for _ in range(len(sent_vals))]
+                dep1 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
+                dep2 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
+                dep3 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
                 for i, t_i in enumerate(sent_vals):
-                    children = {tmap[t_i.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
+                    children = {tmap[c.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
                     for j, t_j in enumerate(sent_vals):
                         if i == j:
                             if opt['self_loop']:
-                                dep1[i][j] = constant.SELF_LOOP
+                                dep1[i][j] = constant.SELF_LOOP_ID
                             continue
                         
                         if j not in children:
