@@ -63,7 +63,7 @@ parser.add_argument('--id', type=str, default='00', help='Model ID under which t
 parser.add_argument('--info', type=str, default='', help='Optional info for the experiment.')
 
 parser.add_argument('--seed', type=int, default=1234)
-parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
+parser.add_argument('--cuda', type=int, default=-1 if not torch.cuda.is_available() else 0)
 parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
 
 parser.add_argument('--load', dest='load', action='store_true', help='Load pretrained model.')
@@ -81,8 +81,9 @@ np.random.seed(args.seed)
 random.seed(1234)
 if args.cpu:
     args.cuda = False
-elif args.cuda:
+elif args.cuda >= 0:
     torch.cuda.manual_seed(args.seed)
+    torch.cuda.set_device(args.cuda)
 init_time = time.time()
 
 # make opt
