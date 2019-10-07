@@ -159,11 +159,13 @@ for epoch in range(1, opt['num_epoch']+1):
     print("Evaluating on dev set...")
     predictions = []
     dev_loss = 0
+    final_gold = []
     for i, batch in enumerate(dev_batch):
         try:
             preds, _, loss = trainer.predict(batch)
+            final_gold.append(dev_batch.gold()[i])
         except:
-            print("lost train epoch %d" % i)
+            print("lost dev epoch %d" % i)
             continue
         predictions += preds
         dev_loss += loss
@@ -171,7 +173,7 @@ for epoch in range(1, opt['num_epoch']+1):
     train_loss = train_loss / train_batch.num_examples * opt['batch_size'] # avg loss per batch
     dev_loss = dev_loss / dev_batch.num_examples * opt['batch_size']
 
-    dev_p, dev_r, dev_f1 = scorer.score(dev_batch.gold(), predictions)
+    dev_p, dev_r, dev_f1 = scorer.score(final_gold, predictions)
     print("epoch {}: train_loss = {:.6f}, dev_loss = {:.6f}, dev_f1 = {:.4f}".format(epoch,\
         train_loss, dev_loss, dev_f1))
     dev_score = dev_f1
