@@ -8,6 +8,7 @@ import torch
 import numpy as np
 import pickle
 import uuid
+import ud2ude_aryehgigi as uda
 
 from utils import constant, helper, vocab
 
@@ -94,7 +95,11 @@ class DataLoader(object):
                     dep1 = [[constant.DEP_TO_ID[r] for (c, r) in t.get_children_with_rels()] for t in sent_vals]
                 dep = (dep1, dep2, dep3)
             
-            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, (sent_vals, uuid.uuid1()), dep, relation)]
+            adj = uda.graph_token.adjacency_matrix(
+                sent_vals, self.opt['prune_k'], subj_positions,
+                obj_positions, self.opt['directed'], opt['self_loop'] and (opt['dep_dim'] > 0), self.opt['lca_type'])
+            
+            processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, adj, dep, relation)]
         return processed
 
     def gold(self):
