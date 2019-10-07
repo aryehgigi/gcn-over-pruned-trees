@@ -119,15 +119,12 @@ class GCN(nn.Module):
         super(GCN, self).__init__()
         self.opt = opt
         self.layers = num_layers
-        self.use_cuda = opt['cuda']
+        self.use_cuda = opt['cuda'] >= 0
         self.mem_dim = mem_dim
         self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
 
         self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3 = embeddings
         
-        if opt['dep_dim'] > 0:
-            self.W_dep = nn.Linear(self.in_dim + opt['dep_dim'], self.in_dim)
-
         # rnn layer
         if self.opt.get('rnn', False):
             input_size = self.in_dim
@@ -145,6 +142,9 @@ class GCN(nn.Module):
         for layer in range(self.layers):
             input_dim = self.in_dim if layer == 0 else self.mem_dim
             self.W.append(nn.Linear(input_dim, self.mem_dim))
+
+        if opt['dep_dim'] > 0:
+            self.W_dep = nn.Linear(self.in_dim + opt['dep_dim'], self.in_dim)
 
     def conv_l2(self):
         conv_weights = []
@@ -185,7 +185,7 @@ class GCN(nn.Module):
             
             gcn_inputs = F.relu(self.W_dep(torch.cat([gcn_inputs.unsqueeze(1).expand(
                 gcn_inputs.shape[0], gcn_inputs.shape[1],
-                gcn_inputs.shape[1], gcn_inputs.shape[2]), chosen_deps], dim=2))).sum(2)
+                gcn_inputs.shape[1], gcn_inputs.shape[2]), chosen_deps], dim=3)))
         
         # gcn layer
         denom = adj.sum(2).unsqueeze(2) + 1
@@ -196,8 +196,11 @@ class GCN(nn.Module):
 
         for l in range(self.layers):
             if (l == 0) and (self.opt['dep_dim'] > 0):
-                chosen = [torch.cat([ii.transpose(0, 1).mv(i).unsqueeze(0) for i, ii in zip(ad, cur)], dim=0).unsqueeze(0) for (ad, cur) in zip(adj, gcn_inputs)]
-                Ax = torch.cat(chosen, dim=0)
+                batch_size, word_count, _, dim = gcn_inputs.shape
+                # cur_gcn_inputs = gcn_inputs.reshape(batch_size * word_count, word_count, dim)
+                # cur_adj = adj.reshape(batch_size * word_count, 1, word_count)
+                # Ax = cur_adj.bmm(cur_gcn_inputs).reshape(batch_size, word_count, dim)
+                Ax = adj.reshape(batch_size * word_count, 1, word_count).bmm(gcn_inputs.reshape(batch_size * word_count, word_count, dim)).reshape(batch_size, word_count, dim)
             else:
                 Ax = adj.bmm(gcn_inputs)
             AxW = self.W[l](Ax)
@@ -229,3 +232,4 @@ def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_c
         return h0.cuda(), c0.cuda()
     else:
         return h0, c0
+

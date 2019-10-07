@@ -46,11 +46,11 @@ class Trainer(object):
 
 
 def unpack_batch(batch, cuda):
-    if cuda:
+    if cuda >= 0:
         inputs = [Variable(b.cuda()) for b in batch[:10]] + [batch[13]] + [Variable(b.cuda()) for b in batch[10]]
         labels = Variable(batch[11].cuda())
     else:
-        inputs = [Variable(b) for b in batch[:10]] + [[Variable(b.cuda()) for b in batch[10]]] + [batch[13]] + [Variable(b.cuda()) for b in batch[10]]
+        inputs = [Variable(b) for b in batch[:10]] + [batch[13]] + [Variable(b) for b in batch[10]]
         labels = Variable(batch[11])
     tokens = batch[0]
     head = batch[5]
@@ -66,7 +66,7 @@ class GCNTrainer(Trainer):
         self.model = GCNClassifier(opt, emb_matrix=emb_matrix)
         self.criterion = nn.CrossEntropyLoss()
         self.parameters = [p for p in self.model.parameters() if p.requires_grad]
-        if opt['cuda']:
+        if opt['cuda'] >= 0:
             self.model.cuda()
             self.criterion.cuda()
         self.optimizer = torch_utils.get_optimizer(opt['optim'], self.parameters, opt['lr'])
