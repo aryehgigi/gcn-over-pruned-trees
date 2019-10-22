@@ -93,14 +93,25 @@ class GCNRelationModel(nn.Module):
         
         adj = []
         for sent in sents:
-            padded = np.pad(sent, ((0, maxlen - len(sent)), (0, maxlen - len(sent))), 'constant')
-            reshaped = padded.reshape(1, maxlen, maxlen)
+            if self.opt['lca_type'] == constant.LcaType.UNION_LCA.value:
+                cur_adj = sent[0]
+                indices = sent[1]
+            elif self.opt['lca_type'] == constant.LcaType.ALL_TREE.value:
+                cur_adj = sent[2]
+                indices = sent[3]
+            if not self.opt['directed']:
+                cur_adj = cur_adj + cur_adj.T
+            if self.opt['self_loop'] and (self.opt['dep_dim'] > 0):
+                for i in indices:
+                    cur_adj[i, i] = 1
+            padded = np.pad(cur_adj, ((0, constant.ADJ_SIZE - len(cur_adj)), (0, constant.ADJ_SIZE - len(cur_adj))), 'constant')
+            reshaped = padded.reshape(1, constant.ADJ_SIZE, constant.ADJ_SIZE)
             adj.append(reshaped)
         adj = np.concatenate(adj, axis=0)
         adj = torch.from_numpy(adj).type(torch.FloatTensor)
-        adj = Variable(adj.cuda()) if self.opt['cuda'] else Variable(adj)
+        adj = Variable(adj.cuda()) if (self.opt['cuda'] >= 0) else Variable(adj)
         
-        h, pool_mask = self.gcn(adj, inputs, maxlen)
+        h, pool_mask = self.gcn(adj, inputs, constant.ADJ_SIZE)
         
         # pooling
         subj_mask, obj_mask = subj_pos.eq(0).eq(0).unsqueeze(2), obj_pos.eq(0).eq(0).unsqueeze(2)  # invert mask
@@ -157,7 +168,7 @@ class GCN(nn.Module):
         h0, c0 = rnn_zero_state(batch_size, self.opt['rnn_hidden'], self.opt['rnn_layers'])
         rnn_inputs = nn.utils.rnn.pack_padded_sequence(rnn_inputs, seq_lens, batch_first=True)
         rnn_outputs, (ht, ct) = self.rnn(rnn_inputs, (h0, c0))
-        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, batch_first=True)
+        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, total_length=constant.ADJ_SIZE, batch_first=True)
         return rnn_outputs
 
     def forward(self, adj, inputs, maxlen):

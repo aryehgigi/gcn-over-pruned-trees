@@ -18,7 +18,7 @@ parser.add_argument('--data_dir', type=str, default='dataset/tacred')
 parser.add_argument('--dataset', type=str, default='test', help="Evaluate on dev or test.")
 
 parser.add_argument('--seed', type=int, default=1234)
-parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
+parser.add_argument('--cuda', type=int, default=-1 if not torch.cuda.is_available() else 0)
 parser.add_argument('--cpu', action='store_true')
 args = parser.parse_args()
 
@@ -26,7 +26,7 @@ torch.manual_seed(args.seed)
 random.seed(1234)
 if args.cpu:
     args.cuda = False
-elif args.cuda:
+elif args.cuda >= 0:
     torch.cuda.manual_seed(args.seed)
 
 # load opt

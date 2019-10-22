@@ -7,10 +7,10 @@ import random
 import torch
 import numpy as np
 import pickle
-import uuid
 import ud2ude_aryehgigi as uda
 
 from utils import constant, helper, vocab
+
 
 class DataLoader(object):
     """
@@ -23,16 +23,16 @@ class DataLoader(object):
         self.eval = evaluation
         self.label2id = constant.LABEL_TO_ID
 
-        # with open(filename) as infile:
-        #     data = json.load(infile)
-        # with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
-        #     sents = pickle.load(infile)
-        # data = self.preprocess(data, vocab, opt, sents)
-        # # with open(opt["data_dir"] + "/processed_%s.pkl" % (filename.split("/")[-1].split(".")[0]), "wb") as outfile:
-        # #     pickle.dump(data, outfile)
-        with open(opt["data_dir"] + "/processed_%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
-            data = pickle.load(infile)
-
+        with open(filename) as infile:
+            data = json.load(infile)
+        with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
+            sents = pickle.load(infile)
+        data = self.preprocess(data, vocab, opt, sents)
+        # with open(opt["data_dir"] + "/processed_%s%d.pkl" % (filename.split("/")[-1].split(".")[0], 4), "wb") as outfile:
+        #     pickle.dump(data, outfile)
+        # with open(opt["data_dir"] + "/processed_%s%d.pkl" % (filename.split("/")[-1].split(".")[0], opt['cuda'] % 7), "rb") as infile:
+        #     data = pickle.load(infile)
+        
         # shuffle for training
         if not evaluation:
             indices = list(range(len(data)))
@@ -86,43 +86,38 @@ class DataLoader(object):
             relation = self.label2id[d['relation']]
 
             # create dep
-            dep = ([[]],[[]],[[]])
-            if self.opt["dep_dim"]:
-                tmap = dict()
-                for i, t_i in enumerate(sent_vals):
-                    tmap[t_i.get_conllu_field("id")] = i
-                
-                dep1 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
-                dep2 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
-                dep3 = [[constant.PAD_ID for _ in range(len(sent_vals))] for _ in range(len(sent_vals))]
-                for i, t_i in enumerate(sent_vals):
-                    children = {tmap[c.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
-                    for j, t_j in enumerate(sent_vals):
-                        if i == j:
-                            if opt['self_loop']:
-                                dep1[i][j] = constant.SELF_LOOP_ID
-                            continue
-                        
-                        if j not in children:
-                            continue
-                        
-                        r = children[j]
-                        if self.opt["dep_type"] in [constant.DepType.NAKED.value, constant.DepType.SPLITED.value]:
-                            dep1[i][j] = constant.DEP_TO_ID2[":".join(r.split(":")[:2])
-                                if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]]
-                            if self.opt["dep_type"] == constant.DepType.SPLITED.value:
-                                if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO):
-                                    dep2[i][j] = constant.DEP_CASE_INFO[r.split(":")[1]]
-                                if "_extra" in r.split(":")[-1]:
-                                    dep3[i][j] = constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]]
-                        else:  # self.opt["dep_type"] == constant.DepType.ALL.value
-                            dep1[i][j] = constant.DEP_TO_ID[r]
-
-                dep = (dep1, dep2, dep3)
+            # tmap = dict()
+            # for i, t_i in enumerate(sent_vals):
+            #     tmap[t_i.get_conllu_field("id")] = i
             
+            # dep0 = [[constant.PAD_ID for _ in range(constant.ADJ_SIZE)] for _ in range(constant.ADJ_SIZE)]
+            # dep1 = [[constant.PAD_ID for _ in range(constant.ADJ_SIZE)] for _ in range(constant.ADJ_SIZE)]
+            # dep2 = [[constant.PAD_ID for _ in range(constant.ADJ_SIZE)] for _ in range(constant.ADJ_SIZE)]
+            # dep3 = [[constant.PAD_ID for _ in range(constant.ADJ_SIZE)] for _ in range(constant.ADJ_SIZE)]
+            # for i, t_i in enumerate(sent_vals):
+            #     children = {tmap[c.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
+            #     for j, t_j in enumerate(sent_vals):
+            #         if i == j:
+            #             dep0[i][j] = constant.SELF_LOOP_ID
+            #             dep1[i][j] = constant.SELF_LOOP_ID
+            #             continue
+            #
+            #         if j not in children:
+            #             continue
+            #
+            #         r = children[j]
+            #         dep0[i][j] = constant.DEP_TO_ID[r]
+            #         dep1[i][j] = constant.DEP_TO_ID2[":".join(r.split(":")[:2])
+            #             if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]]
+            #         if (len(r.split(":")) > 1) and (r.split(":")[1] in constant.DEP_CASE_INFO):
+            #             dep2[i][j] = constant.DEP_CASE_INFO[r.split(":")[1]]
+            #         if "_extra" in r.split(":")[-1]:
+            #             dep3[i][j] = constant.DEP_EXTRA[r.split(":")[-1].split("_")[0]]
+
+            # dep = (([[]],[[]],[[]]), (dep0,[[]],[[]]), (dep1,[[]],[[]]), (dep1, dep2, dep3))[0]
+            dep = ([[]], [[]], [[]])
             adj = uda.graph_token.adjacency_matrix(
-                sent_vals, self.opt['prune_k'], subj_positions,
-                obj_positions, self.opt['directed'], opt['self_loop'] and (opt['dep_dim'] > 0), self.opt['lca_type'])
+                sent_vals, self.opt['prune_k'], subj_positions, obj_positions)
             
             processed += [(tokens, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, adj, dep, relation)]
         return processed
@@ -170,9 +165,16 @@ class DataLoader(object):
         rels = torch.LongTensor(batch[11])
         sents = batch[9]
         batch10 = list(zip(*(batch[10])))
-        dep = (get_long_tensor_matrix(batch10[0], batch_size),
-               get_long_tensor_matrix(batch10[1], batch_size),
-               get_long_tensor_matrix(batch10[2], batch_size))
+        # if self.opt["dep_dim"] <= 0:
+        #     batch10 = batch10[0]
+        # elif self.opt["dep_type"] == constant.DepType.ALL.value:
+        #     batch10 = batch10[1]
+        # elif self.opt["dep_type"] == constant.DepType.NAKED.value:
+        #     batch10 = batch10[2]
+        # else: # self.opt["dep_type"] == constant.DepType.SPLITED.value
+        #     batch10 = batch10[3]
+        # batch10 = list(zip(*(batch10)))
+        dep = (torch.LongTensor(batch10[0]), torch.LongTensor(batch10[1]), torch.LongTensor(batch10[2]))
         return (words, masks, pos, ner, deprel, head, subj_positions, obj_positions, subj_type, obj_type, dep, rels, orig_idx, sents)
 
     def __iter__(self):
@@ -191,19 +193,9 @@ def get_positions(start_idx, end_idx, length):
 def get_long_tensor(tokens_list, batch_size):
     """ Convert list of list of tokens to a padded LongTensor. """
     token_len = max(len(x) for x in tokens_list)
-    tokens = torch.LongTensor(batch_size, token_len).fill_(constant.PAD_ID)
+    tokens = torch.LongTensor(batch_size, constant.ADJ_SIZE).fill_(constant.PAD_ID)
     for i, s in enumerate(tokens_list):
         tokens[i, :len(s)] = torch.LongTensor(s)
-    return tokens
-
-def get_long_tensor_matrix(tokens_list, batch_size):
-    """ Convert list of list of tokens to a padded LongTensor. """
-    sent_len = max(len(x) for x in tokens_list)
-    token_len = max(len(x) for t in tokens_list for x in t)
-    tokens = torch.LongTensor(batch_size, sent_len, token_len).fill_(constant.PAD_ID)
-    for i, s in enumerate(tokens_list):
-        for j, w in enumerate(s):
-            tokens[i, j, :len(w)] = torch.LongTensor(w)
     return tokens
 
 
