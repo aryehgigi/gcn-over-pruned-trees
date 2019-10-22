@@ -243,4 +243,3 @@ def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_c
         return h0.cuda(), c0.cuda()
     else:
         return h0, c0
-
