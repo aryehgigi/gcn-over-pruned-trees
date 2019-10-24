@@ -190,7 +190,7 @@ class GCN(nn.Module):
 
         if self.opt['dep_dim'] > 0:
             if self.opt["dep_type"] == constant.DepType.SPLITED.value:
-                chosen_deps = torch.cat([self.dep_emb(dep), self.dep_emb2(dep2), self.dep_emb3(dep3)], dim=3)
+                chosen_deps = self.dep_emb(dep) + self.dep_emb2(dep2) + self.dep_emb3(dep3)
             else:
                 chosen_deps = self.dep_emb(dep)
             
