@@ -26,7 +26,7 @@ class DataLoader(object):
         with open(filename) as infile:
             data = json.load(infile)
             self.raw_data = data
-        with open(opt["data_dir"] + "/%s.pkl" % (filename.split("/")[-1].split(".")[0]), "rb") as infile:
+        with open(opt["data_dir"] + "/%s%s.pkl" % (filename.split("/")[-1].split(".")[0], '' if not opt['2_convs'] else '_2_convs'), "rb") as infile:
             sents = pickle.load(infile)
         data = self.preprocess(data, vocab, opt, sents)
         with open(opt["data_dir"] + "/processed_%s%s.pkl" % (filename.split("/")[-1].split(".")[0], opt['id']), "wb") as outfile:
