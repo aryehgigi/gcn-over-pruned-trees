@@ -52,9 +52,9 @@ class GCNRelationModel(nn.Module):
             self.dep_emb2 = None
             self.dep_emb3 = None
         else: # self.opt["dep_type"] == constant.DepType.SPLITED.value:
-            self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            self.dep_emb2 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim'] / 2), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            self.dep_emb3 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim'] / 4), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb2 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            self.dep_emb3 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
             
         embeddings = (self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3)
         self.init_embeddings()
