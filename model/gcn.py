@@ -99,8 +99,9 @@ class GCNRelationModel(nn.Module):
             elif self.opt['lca_type'] == constant.LcaType.ALL_TREE.value:
                 cur_adj = sent[2]
                 indices = sent[3]
-            if not self.opt['directed']:
-                cur_adj = cur_adj + cur_adj.T
+            # if not self.opt['directed']:
+            #     cur_adj = cur_adj + cur_adj.T
+            cur_adj = (cur_adj + cur_adj.T).clip(0, 1)
             if self.opt['self_loop'] and (self.opt['dep_dim'] > 0):
                 for i in indices:
                     cur_adj[i, i] = 1

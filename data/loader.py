@@ -98,16 +98,23 @@ class DataLoader(object):
                 dep3 = [[constant.PAD_ID for _ in range(constant.ADJ_SIZE)] for _ in range(constant.ADJ_SIZE)]
                 for i, t_i in enumerate(sent_vals):
                     children = {tmap[c.get_conllu_field("id")]: r for c, r in t_i.get_children_with_rels()}
+                    parents = {tmap[p.get_conllu_field("id")]: r for p, r in t_i.get_new_relations()} # TODO: validate the root simply has no parents
                     for j, t_j in enumerate(sent_vals):
                         if i == j:
                             dep0[i][j] = constant.SELF_LOOP_ID
                             dep1[i][j] = constant.SELF_LOOP_ID
                             continue
-    
-                        if j not in children:
+
+                        # TODO: validate that in cycle case we prefer the son
+                        #   (remember when i and j will switch then the the other relation of the cycle will be used
+                        #   - so we dont really miss anything)
+                        if j in children:
+                            r = children[j]
+                        elif j in parents:
+                            r = "~" + parents[j]
+                        else:
                             continue
     
-                        r = children[j]
                         dep0[i][j] = constant.DEP_TO_ID[r]
                         dep1[i][j] = constant.DEP_TO_ID2[":".join(r.split(":")[:2])
                             if ":".join(r.split(":")[:2]) in constant.DEP_TO_ID2 else r.split(":")[0]]
