@@ -54,8 +54,11 @@ class GCNRelationModel(nn.Module):
         else: # self.opt["dep_type"] == constant.DepType.SPLITED.value:
             self.dep_emb = nn.Embedding(len(constant.DEP_TO_ID2), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
             self.dep_emb2 = nn.Embedding(len(constant.DEP_CASE_INFO), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            self.dep_emb3 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
-            
+            if self.opt["dep_type"] == constant.DepType.SPLITED.value:
+                self.dep_emb3 = nn.Embedding(len(constant.DEP_EXTRA), int(opt['dep_dim']), padding_idx=constant.PAD_ID) if opt['dep_dim'] > 0 else None
+            else:
+                self.dep_emb3 = None
+        
         embeddings = (self.emb, self.pos_emb, self.ner_emb, self.dep_emb, self.dep_emb2, self.dep_emb3)
         self.init_embeddings()
 
@@ -156,7 +159,7 @@ class GCN(nn.Module):
             self.W.append(nn.Linear(input_dim, self.mem_dim))
 
         if opt['dep_dim'] > 0:
-            self.W_dep = nn.Linear(self.in_dim + opt['dep_dim'], self.in_dim)
+            self.W_dep = nn.Linear(opt['dep_dim'], 1)
 
     def conv_l2(self):
         conv_weights = []
@@ -189,32 +192,45 @@ class GCN(nn.Module):
         else:
             gcn_inputs = embs
 
+        if self.opt["pre_denom"]:
+            # gcn layer
+            denom = adj.sum(2).unsqueeze(2) + 1
+            mask = (adj.sum(2) + adj.sum(1)).eq(0).unsqueeze(2)
+            # zero out adj for ablation
+            if self.opt.get('no_adj', False):
+                adj = torch.zeros_like(adj)
+
         if self.opt['dep_dim'] > 0:
             if self.opt["dep_type"] == constant.DepType.SPLITED.value:
                 chosen_deps = self.dep_emb(dep) + self.dep_emb2(dep2) + self.dep_emb3(dep3)
+            elif self.opt["dep_type"] == 3:
+                chosen_deps = self.dep_emb(dep) + self.dep_emb2(dep2)
             else:
                 chosen_deps = self.dep_emb(dep)
-            
-            gcn_inputs = F.relu(self.W_dep(torch.cat([gcn_inputs.unsqueeze(1).expand(
-                gcn_inputs.shape[0], gcn_inputs.shape[1],
-                gcn_inputs.shape[1], gcn_inputs.shape[2]), chosen_deps], dim=3)))
-        
-        # gcn layer
-        denom = adj.sum(2).unsqueeze(2) + 1
-        mask = (adj.sum(2) + adj.sum(1)).eq(0).unsqueeze(2)
-        # zero out adj for ablation
-        if self.opt.get('no_adj', False):
-            adj = torch.zeros_like(adj)
+
+            adj = (chosen_deps.squeeze(3) if self.opt["dep_dim"] == 1 else F.relu(self.W_dep(chosen_deps)).squeeze(3)) * adj
+            # gcn_inputs = F.relu(self.W_dep(torch.cat([gcn_inputs.unsqueeze(1).expand(
+            #     gcn_inputs.shape[0], gcn_inputs.shape[1],
+            #     gcn_inputs.shape[1], gcn_inputs.shape[2]), chosen_deps], dim=3)))
+
+        if not self.opt["pre_denom"]:
+            # gcn layer
+            denom = adj.sum(2).unsqueeze(2) + 1
+            mask = (adj.sum(2) + adj.sum(1)).eq(0).unsqueeze(2)
+            # zero out adj for ablation
+            if self.opt.get('no_adj', False):
+                adj = torch.zeros_like(adj)
 
         for l in range(self.layers):
-            if (l == 0) and (self.opt['dep_dim'] > 0):
-                batch_size, word_count, _, dim = gcn_inputs.shape
-                # cur_gcn_inputs = gcn_inputs.reshape(batch_size * word_count, word_count, dim)
-                # cur_adj = adj.reshape(batch_size * word_count, 1, word_count)
-                # Ax = cur_adj.bmm(cur_gcn_inputs).reshape(batch_size, word_count, dim)
-                Ax = adj.reshape(batch_size * word_count, 1, word_count).bmm(gcn_inputs.reshape(batch_size * word_count, word_count, dim)).reshape(batch_size, word_count, dim)
-            else:
-                Ax = adj.bmm(gcn_inputs)
+            # if (l == 0) and (self.opt['dep_dim'] > 0):
+            #     batch_size, word_count, _, dim = gcn_inputs.shape
+            #     # cur_gcn_inputs = gcn_inputs.reshape(batch_size * word_count, word_count, dim)
+            #     # cur_adj = adj.reshape(batch_size * word_count, 1, word_count)
+            #     # Ax = cur_adj.bmm(cur_gcn_inputs).reshape(batch_size, word_count, dim)
+            #     Ax = adj.reshape(batch_size * word_count, 1, word_count).bmm(gcn_inputs.reshape(batch_size * word_count, word_count, dim)).reshape(batch_size, word_count, dim)
+            # else:
+            #     Ax = adj.bmm(gcn_inputs)
+            Ax = adj.bmm(gcn_inputs)
             AxW = self.W[l](Ax)
             if ((l != 0) or (self.opt['dep_dim'] == 0)) and self.opt['self_loop']:
                 AxW = AxW + self.W[l](gcn_inputs)  # self loop

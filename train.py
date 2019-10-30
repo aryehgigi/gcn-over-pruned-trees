@@ -75,6 +75,8 @@ parser.add_argument('--self_loop', type=bool, default=False)
 parser.add_argument('--dep_dim', type=int, default=0, help='Aryeh-dep embedding dimension.')
 parser.add_argument('--dep_type', type=int, default=constant.DepType.ALL.value)
 parser.add_argument('--lca_type', type=int, default=constant.LcaType.UNION_LCA)
+parser.add_argument('--pre_denom', type=bool, default=False)
+parser.add_argument('--use_processed', type=int, default=0)
 
 args = parser.parse_args()
 

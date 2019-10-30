@@ -23,17 +23,21 @@ class DataLoader(object):
         self.eval = evaluation
         self.label2id = constant.LABEL_TO_ID
 
-        with open(filename) as infile:
-            data = json.load(infile)
-            self.raw_data = data
-        with open(opt["data_dir"] + "/%s%s.pkl" % (filename.split("/")[-1].split(".")[0], '' if not opt['2_convs'] else '_2_convs'), "rb") as infile:
-            sents = pickle.load(infile)
-        data = self.preprocess(data, vocab, opt, sents)
-        with open(opt["data_dir"] + "/processed_%s%s.pkl" % (filename.split("/")[-1].split(".")[0], opt['id']), "wb") as outfile:
-            pickle.dump(data, outfile)
-        # with open(opt["data_dir"] + "/processed_%s%d.pkl" % (filename.split("/")[-1].split(".")[0], opt['cuda'] % 7), "rb") as infile:
-        #     data = pickle.load(infile)
-        
+        try:
+            with open(
+                    opt["data_dir"] + "/processed_%s%d.pkl" % (filename.split("/")[-1].split(".")[0], opt["use_processed"]),
+                    "rb") as infile:
+                data = pickle.load(infile)
+        except FileNotFoundError:
+            with open(filename) as infile:
+                data = json.load(infile)
+                self.raw_data = data
+            with open(opt["data_dir"] + "/%s%s.pkl" % (filename.split("/")[-1].split(".")[0], '' if not opt['2_convs'] else '_2_convs'), "rb") as infile:
+                sents = pickle.load(infile)
+            data = self.preprocess(data, vocab, opt, sents)
+            with open(opt["data_dir"] + "/processed_%s%s.pkl" % (filename.split("/")[-1].split(".")[0], opt['id']), "wb") as outfile:
+                pickle.dump(data, outfile)
+                
         # shuffle for training
         if not evaluation:
             indices = list(range(len(data)))
@@ -130,7 +134,7 @@ class DataLoader(object):
                     dep = (dep1, dep2, dep3)
             else:
                 dep = ([[]], [[]], [[]])
-                
+            
             adj = uda.graph_token.adjacency_matrix(
                 sent_vals, self.opt['prune_k'], subj_positions, obj_positions)
             
