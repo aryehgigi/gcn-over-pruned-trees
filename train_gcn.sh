@@ -24,3 +24,4 @@ python train.py --id 22 --seed 0 --prune_k 1 --lr 0.3 --no-rnn --num_epoch 100 -
 python train.py --id 23 --seed 0 --prune_k 1 --lr 0.3 --no-rnn --num_epoch 100 --pooling max --mlp_layers 2 --pooling_l2 0.003 --cuda 1 --directed 1 --lca_type 2 --dep_dim 0
 python train.py --id 24 --seed 0 --prune_k 1 --lr 0.3 --no-rnn --num_epoch 100 --pooling max --mlp_layers 2 --pooling_l2 0.003 --cuda 1 --directed 1 --lca_type 1 --dep_dim 0
 python train.py --id 25 --seed 0 --prune_k 1 --lr 0.3 --no-rnn --num_epoch 100 --pooling max --mlp_layers 2 --pooling_l2 0.003 --cuda 1 --directed 1 --lca_type 0 --dep_dim 0
+
