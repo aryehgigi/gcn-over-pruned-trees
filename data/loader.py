@@ -29,11 +29,24 @@ class DataLoader(object):
                     "rb") as infile:
                 data = pickle.load(infile)
         except FileNotFoundError:
+            idx = []
             with open(filename) as infile:
                 data = json.load(infile)
+                if not evaluation:
+                    relation_subs = dict(constant.relation_subs3)
+                    reduced_data = []
+                    for i, sample in enumerate(data):
+                        if relation_subs[sample['relation']] > 0:
+                            reduced_data.append(sample)
+                            relation_subs[sample['relation']] -= 1
+                            idx.append(i)
+                    data = reduced_data
                 self.raw_data = data
             with open(opt["data_dir"] + "/%s%s.pkl" % (filename.split("/")[-1].split(".")[0], '' if not opt['2_convs'] else '_2_convs'), "rb") as infile:
                 sents = pickle.load(infile)
+                if not evaluation:
+                    reduced_sents = [sent for i, sent in enumerate(sents) if i in idx]
+                    sents = reduced_sents
             data = self.preprocess(data, vocab, opt, sents)
             with open(opt["data_dir"] + "/processed_%s%s.pkl" % (filename.split("/")[-1].split(".")[0], opt['id']), "wb") as outfile:
                 pickle.dump(data, outfile)
