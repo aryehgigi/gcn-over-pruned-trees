@@ -32,8 +32,8 @@ class DataLoader(object):
             idx = []
             with open(filename) as infile:
                 data = json.load(infile)
-                if not evaluation:
-                    relation_subs = dict(constant.relation_subs3)
+                if not evaluation and opt['reduced_data']:
+                    relation_subs = dict(constant.relation_subs4)
                     reduced_data = []
                     for i, sample in enumerate(data):
                         if relation_subs[sample['relation']] > 0:
@@ -44,7 +44,7 @@ class DataLoader(object):
                 self.raw_data = data
             with open(opt["data_dir"] + "/%s%s.pkl" % (filename.split("/")[-1].split(".")[0], '' if not opt['2_convs'] else '_2_convs'), "rb") as infile:
                 sents = pickle.load(infile)
-                if not evaluation:
+                if not evaluation and opt['reduced_data']:
                     reduced_sents = [sent for i, sent in enumerate(sents) if i in idx]
                     sents = reduced_sents
             data = self.preprocess(data, vocab, opt, sents)

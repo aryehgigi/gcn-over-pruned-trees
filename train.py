@@ -77,6 +77,7 @@ parser.add_argument('--dep_type', type=int, default=constant.DepType.ALL.value)
 parser.add_argument('--lca_type', type=int, default=constant.LcaType.UNION_LCA)
 parser.add_argument('--pre_denom', type=bool, default=False)
 parser.add_argument('--use_processed', type=int, default=0)
+parser.add_argument('--reduced_data', type=bool, default=False)
 
 args = parser.parse_args()
 
